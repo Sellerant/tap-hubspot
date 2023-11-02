@@ -269,7 +269,6 @@ def acquire_access_token_from_refresh_token():
         "client_secret": CONFIG['client_secret'],
     }
 
-
     resp = requests.post(BASE_URL + "/oauth/v1/token", data=payload, timeout=get_request_timeout())
     if resp.status_code == 403:
         raise InvalidAuthException(resp.content)
@@ -283,6 +282,25 @@ def acquire_access_token_from_refresh_token():
         datetime.timedelta(seconds=auth['expires_in'] - 600))
     LOGGER.info("Token refreshed. Expires at %s", CONFIG['token_expires'])
 
+def acquire_access_token_from_nango():
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {CONFIG['nango_secret']}"
+    }
+
+    resp = requests.get(f"{CONFIG['nango_host']}/connection/{CONFIG['nango_user']}?provider_config_key=hubspot", headers=headers, timeout=get_request_timeout())
+    if resp.status_code == 403:
+        raise InvalidAuthException(resp.content)
+
+    resp.raise_for_status()
+    auth = resp.json()
+    raw_credentials = auth['credentials']['raw']
+
+    CONFIG['access_token'] = raw_credentials['access_token']
+    CONFIG['token_expires'] = (
+        datetime.datetime.utcnow() +
+        datetime.timedelta(seconds=raw_credentials['expires_in'] - 120))
+    LOGGER.info("Token refreshed. Expires at %s", CONFIG['token_expires'])
 
 def giveup(exc):
     return exc.response is not None \
@@ -318,7 +336,7 @@ def get_params_and_headers(params):
     hapikey = CONFIG['hapikey']
     if hapikey is None:
         if CONFIG['token_expires'] is None or CONFIG['token_expires'] < datetime.datetime.utcnow():
-            acquire_access_token_from_refresh_token()
+            acquire_access_token_from_nango()
         headers = {'Authorization': 'Bearer {}'.format(CONFIG['access_token'])}
     else:
         params['hapikey'] = hapikey
@@ -1276,10 +1294,9 @@ def get_request_timeout():
 
 def main_impl():
     args = utils.parse_args(
-        ["redirect_uri",
-         "client_id",
-         "client_secret",
-         "refresh_token",
+        ["nango_secret",
+         "nango_host",
+         "nango_user",
          "start_date"])
 
     CONFIG.update(args.config)
